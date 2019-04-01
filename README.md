@@ -1,4 +1,4 @@
-Scripts for performing simulations described in paper: [Pitfalls and Remedies for Cross Validation with Multi-trait Genomic Prediction Methods](). The three scripts:
+Scripts for performing simulations described in paper: [Pitfalls and Remedies for Cross Validation with Multi-trait Genomic Prediction Methods](http://biorxiv.org/cgi/content/short/595397v1). The three scripts:
 
 ```
 Sim_GP.R
