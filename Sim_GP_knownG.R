@@ -29,7 +29,7 @@ if(is.na(runID)) runID = 1
 registerDoParallel(1)
 nReps = 1
 
-cor_Family = .5
+cor_Family = .25
 cor_Sib = 1
 n_Line = as.numeric(commandArgs(t=T)[2])
 if(is.na(n_Line)) n_Line = 10
@@ -163,8 +163,8 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
       G_full = kronecker(G,K)
 
       # step 1: U estimate from full data
-      Sigma_full = R_full + Z_tall %*% G_full %*% t(Z_tall)
-      uhat = matrix(G_full %*% t(Z_tall) %*% solve(Sigma_full,c(Y)),nc = nTrait)
+      V_full = R_full + Z_tall %*% G_full %*% t(Z_tall)
+      uhat = matrix(G_full %*% t(Z_tall) %*% solve(V_full,c(Y)),nc = nTrait)
       rownames(uhat) = Lines
       # Uhat_full = uhat
       Uhat_full_validation = uhat[masked_Lines,1]
@@ -174,9 +174,9 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
       YNA[mask,1] = NA
 
       i = !is.na(c(YNA))
-      # Sigma = R_full[i,i] + Z_training %*% G_full %*% t(Z_training)
-      Sigma = Sigma_full[i,i]
-      uhat = matrix(G_full %*% t(Z_training) %*% solve(Sigma,c(YNA)[i]),nc = nTrait)
+      # V = R_full[i,i] + Z_training %*% G_full %*% t(Z_training)
+      V = V_full[i,i]
+      uhat = matrix(G_full %*% t(Z_training) %*% solve(V,c(YNA)[i]),nc = nTrait)
       rownames(uhat) = Lines
       # Uhat_joint = uhat
       Uhat_joint_validation = uhat[masked_Lines,1]
@@ -185,9 +185,9 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
       Y_train = Y
       Y_train[mask,] = NA
       i = !is.na(c(Y_train))
-      # Sigma = kronecker(G,K_train) + kronecker(R,diag(1,length(training_Lines)))
-      Sigma = Sigma_full[i,i]
-      uhat = matrix(kronecker(G,K_train) %*% solve(Sigma,c(Y[-mask,])),nc = nTrait)
+      # V = kronecker(G,K_train) + kronecker(R,diag(1,length(training_Lines)))
+      V = V_full[i,i]
+      uhat = matrix(kronecker(G,K_train) %*% solve(V,c(Y[-mask,])),nc = nTrait)
 
 
       # now validation lines conditional on Training lines
@@ -233,9 +233,9 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
         # diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Family + (1-cor_Family) * cor_Sib
         diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Sib
         cov_A_validation = kronecker(G[1,,drop=FALSE],K_validation_i)
-        Sigma = diag(G[1,1],length(masked_Lines)) - cov_A_validation %*% cov_A_observed_actual_inv %*% t(cov_A_validation)
-        if(min(diag(Sigma)) < 0) diag(Sigma) = diag(Sigma) + 1e-10 - pmin(0,min(diag(Sigma)))
-        chol_Sigma = chol(Sigma,pivot = F)
+        V = diag(G[1,1],length(masked_Lines)) - cov_A_validation %*% cov_A_observed_actual_inv %*% t(cov_A_validation)
+        if(min(diag(V)) < 0) diag(V) = diag(V) + 1e-10 - pmin(0,min(diag(V)))
+        chol_Sigma = chol(V,pivot = F)
         U_validation_mean = cov_A_validation %*% U_rot
         U_validation_mean + t(chol_Sigma) %*% U_validation_randn
       }
@@ -247,12 +247,10 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
       Y_validation = U_validation + c(E_validation)
 
       # predict U1 with single-trait model
-      # res=mixed.solve(YNA[,1],K = as.matrix(K[wide_data$Line,wide_data$Line]))
-      # Uhat_validation_single = res$u[mask]
       i = !is.na(YNA[,1])
       KL =  as.matrix(K[wide_data$Line,wide_data$Line])
-      Sigma = G[1,1] * KL[i,i] + R[1,1]*diag(1,sum(i))
-      Uhat_validation_single = (G[1,1] * KL[,i] %*% solve(Sigma,YNA[i,1]))[mask]
+      V = G[1,1] * KL[i,i] + R[1,1]*diag(1,sum(i))
+      Uhat_validation_single = (G[1,1] * KL[,i] %*% solve(V,YNA[i,1]))[mask]
 
 
       # Results

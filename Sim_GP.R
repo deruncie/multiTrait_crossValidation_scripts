@@ -22,7 +22,7 @@ library(rrBLUP)
 library(foreach)
 library(doParallel)
 library(MASS)
-source('my_relmatLmer.R')
+# source('my_relmatLmer.R')
 
 
 runID = as.numeric(commandArgs(t=T)[1])
@@ -30,7 +30,7 @@ if(is.na(runID)) runID = 1
 registerDoParallel(1)
 nReps = 1
 
-cor_Family = .5
+cor_Family = .25
 cor_Sib = 1
 n_Line = as.numeric(commandArgs(t=T)[2])
 if(is.na(n_Line)) n_Line = 10
@@ -73,6 +73,7 @@ Line_data = Line_data[match(wide_data$Line,Line_data$Line),]
 Lines = Line_data$Line
 
 Z_family = model.matrix(~0+Family,Line_data)
+colnames(Z_family) = sub('Family','',colnames(Z_family))
 
 tall_data = do.call(rbind,lapply(1:nTrait,function(t) data.frame(wide_data,Trait = t)))
 tall_data$Trait = factor(tall_data$Trait)
@@ -116,6 +117,9 @@ U_randn = matrix(rnorm(length(Lines)*nTrait),length(Lines),nTrait)
 U_validation_randn = rnorm(length(masked_Lines))
 E_randn = matrix(rnorm(n*nTrait),n,nTrait)
 E_validation_randn = matrix(rnorm(length(masked_Lines)*nTrait),nc=nTrait)
+
+In = Diagonal(n,1)
+I_train = Diagonal(n - length(mask),1)
 
 
 
@@ -163,28 +167,52 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
       Y = as.matrix(Z_L %*% U + E)
 
       # fit model to full data
-      m0 = relmatLmer(c(Y)~Trait+(0+Trait|Line)+(0+Trait|ID),tall_data,relmat = list(Line = K))
-      Uhat_full_validation = c((t(as.matrix(m0@optinfo$relmat[[1]]$Line)) %*% as.matrix(ranef(m0)$Line))[masked_Lines,1])
+      m0 = lmer(c(Y)~0+Trait+(0+Trait|Family)+(0+Trait|ID),tall_data,control=lmerControl(check.nobs.vs.nlev = "ignore",check.nobs.vs.rankZ = "ignore",check.nobs.vs.nRE="ignore"))
+
+      var1 = as.data.frame(VarCorr(m0))
+      Rhat = diag(var1$vcov[7],2)
+      Rhat[1,1] = Rhat[1,1] + var1$vcov[1]
+      Rhat[2,2] = Rhat[2,2] + var1$vcov[2]
+      Rhat[1,2]=Rhat[2,1] = var1$vcov[3]
+      Ghat = diag(1,2)
+      Ghat[1,1] = var1$vcov[4]
+      Ghat[2,2] = var1$vcov[5]
+      Ghat[1,2]=Ghat[2,1] = var1$vcov[6]
+      Ghat = Ghat/cor_Family
+      Rhat = Rhat - Ghat*(1-cor_Family)
+
+
+      Rhat_full = kronecker(Rhat,In)
+      Ghat_full = kronecker(Ghat,K)
+
+      Vhat_full = Rhat_full + Z_tall %*% Ghat_full %*% t(Z_tall)
+      uhat = matrix(Ghat_full %*% t(Z_tall) %*% solve(Vhat_full,c(sweep(Y,2,fixef(m0),'-'))),nc = nTrait)
+      rownames(uhat) = Lines
+      Uhat_full_validation = uhat[masked_Lines,1]
+
 
       Y_train = Y
       Y_train[mask,] = NA
-      m1 = relmatLmer(c(Y_train)~0+Trait+(0+Trait|Line)+(0+Trait|ID),tall_data,relmat = list(Line = K))
-      # extract Ghat
+      m1 = lmer(c(Y_train)~0+Trait+(0+Trait|Family)+(0+Trait|ID),tall_data,control=lmerControl(check.nobs.vs.nlev = "ignore",check.nobs.vs.rankZ = "ignore",check.nobs.vs.nRE="ignore"))
+
       var1 = as.data.frame(VarCorr(m1))
       Rhat = diag(var1$vcov[7],2)
-      Rhat[1,1] = Rhat[1,1] + var1$vcov[4]
-      Rhat[2,2] = Rhat[2,2] + var1$vcov[5]
-      Rhat[1,2]=Rhat[2,1] = var1$vcov[6]
+      Rhat[1,1] = Rhat[1,1] + var1$vcov[1]
+      Rhat[2,2] = Rhat[2,2] + var1$vcov[2]
+      Rhat[1,2]=Rhat[2,1] = var1$vcov[3]
       Ghat = diag(1,2)
-      Ghat[1,1] = var1$vcov[1]
-      Ghat[2,2] = var1$vcov[2]
-      Ghat[1,2]=Ghat[2,1] = var1$vcov[3]
-      Ghat_inv = ginv(Ghat)
+      Ghat[1,1] = var1$vcov[4]
+      Ghat[2,2] = var1$vcov[5]
+      Ghat[1,2]=Ghat[2,1] = var1$vcov[6]
+      Ghat = Ghat/cor_Family
+      Rhat = Rhat - Ghat*(1-cor_Family)
 
       h2_hat_joint = Ghat[1,1]/(Ghat[1,1]+Rhat[1,1])
 
-
-      uhat = matrix(c((t(as.matrix(m1@optinfo$relmat[[1]]$Line)) %*% as.matrix(ranef(m1)$Line))[training_Lines,]),nc=nTrait)
+      Rhat_full = kronecker(Rhat,I_train)
+      Ghat_full = kronecker(Ghat,K_train)
+      Vhat_full = Rhat_full + Ghat_full
+      uhat = matrix(Ghat_full %*% solve(Vhat_full,c(sweep(Y_train[-mask,],2,fixef(m1),'-'))),nc = nTrait)
 
       # now validation lines conditional on Training lines
       ustar_mean = K_star %*% inv_K_train %*% uhat
@@ -231,12 +259,14 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
 
       Y_validation = U_validation + c(E_validation)
 
-      # predict U1 with single-trait model
-      res = relmatLmer(Y_train[,1]~(1|Line),data = wide_data,relmat = list(Line = K))
-      Uhat_validation_single =  as.matrix(K_validation[,training_Lines] %*% inv_K_train %*% as.matrix(ranef(res)$Line)[training_Lines,])[,1]
+      res = lmer(Y_train[,1]~(1|Family),data = wide_data)
       res_vars = as.data.frame(VarCorr(res))
-      h2_hat_single = res_vars$vcov[1]/sum(res_vars$vcov)
+      s2_g = res_vars$vcov[1]/cor_Family
+      s2_r = res_vars$vcov[2] - s2_g*(1-cor_Family)
+      h2_hat_single = s2_g/(s2_g+s2_r)
 
+      V = s2_g * K_train + s2_r * I_train
+      Uhat_validation_single = s2_g * as.matrix(K_validation[,training_Lines] %*% solve(V,Y_train[-mask,1]-fixef(res)))[,1]
 
 
       # Results

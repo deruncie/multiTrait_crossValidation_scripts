@@ -113,6 +113,8 @@ U_validation_randn = rnorm(length(masked_Lines))
 E_randn = matrix(rnorm(n*nTrait),n,nTrait)
 E_validation_randn = matrix(rnorm(length(masked_Lines)*nTrait),nc=nTrait)
 
+In = Diagonal(n,1)
+I_train = Diagonal(n - length(mask),1)
 
 
 # results = foreach(cor_Family = c(0.1,0.25,0.5,1),.combine = 'rbind',.errorhandling = 'remove') %do% {
@@ -140,103 +142,125 @@ results = foreach(cor_Family = c(0.25),.combine = 'rbind',.errorhandling = 'remo
         foreach(H22 = c(0.2,0.6),.combine = 'rbind',.errorhandling = 'remove') %do% { #0.4,
 
 
-      H2s[1] = H21
-      H2s[-1] = H22
-      Gcor = diag(1,nTrait);
-      Gcor[Gcor==0] = cor_G
-      G = diag(sqrt(H2s)) %*% Gcor %*% diag(sqrt(H2s))
-      Gsqrt = chol(G)
-      Rcor = diag(1,nTrait);
-      Rcor[Rcor==0] = cor_R2
-      Rcor[1,-1] = Rcor[-1,1] = cor_R
-      R = diag(sqrt(1-H2s)) %*% Rcor %*% diag(sqrt(1-H2s))
-      Rsqrt = chol(R)
+          H2s[1] = H21
+          H2s[-1] = H22
+          Gcor = diag(1,nTrait);
+          Gcor[Gcor==0] = cor_G
+          G = diag(sqrt(H2s)) %*% Gcor %*% diag(sqrt(H2s))
+          Gsqrt = chol(G)
+          Rcor = diag(1,nTrait);
+          Rcor[Rcor==0] = cor_R2
+          Rcor[1,-1] = Rcor[-1,1] = cor_R
+          R = diag(sqrt(1-H2s)) %*% Rcor %*% diag(sqrt(1-H2s))
+          Rsqrt = chol(R)
 
-      print(c(cor_Family,cor_G,cor_R,H21,H22))
-      # set.seed(Rep)
-      U = t(chol_K) %*% U_randn %*% Gsqrt
-      E = E_randn %*% Rsqrt     # environmental error
-      Y = as.matrix(Z_L %*% U + E)
+          print(c(cor_Family,cor_G,cor_R,H21,H22))
+          # set.seed(Rep)
+          U = t(chol_K) %*% U_randn %*% Gsqrt
+          E = E_randn %*% Rsqrt     # environmental error
+          Y = as.matrix(Z_L %*% U + E)
 
-      # fit model to full data
-      m0 = relmatLmer(c(Y)~Trait+(0+Trait|Line)+(0+Trait|ID),tall_data,relmat = list(Line = K))
-      Uhat_full_validation = c((t(as.matrix(m0@optinfo$relmat[[1]]$Line)) %*% as.matrix(ranef(m0)$Line))[masked_Lines,1])
+          # fit model to full data
+          m0 = lmer(c(Y)~0+Trait+(0+Trait|Family)+(0+Trait|ID),tall_data,control=lmerControl(check.nobs.vs.nlev = "ignore",check.nobs.vs.rankZ = "ignore",check.nobs.vs.nRE="ignore"))
 
-      Y_train = Y
-      Y_train[mask,] = NA
-      m1 = relmatLmer(c(Y_train)~0+Trait+(0+Trait|Line)+(0+Trait|ID),tall_data,relmat = list(Line = K))
-      # extract Ghat
-      var1 = as.data.frame(VarCorr(m1))
-      Rhat = diag(var1$vcov[7],2)
-      Rhat[1,1] = Rhat[1,1] + var1$vcov[4]
-      Rhat[2,2] = Rhat[2,2] + var1$vcov[5]
-      Rhat[1,2]=Rhat[2,1] = var1$vcov[6]
-      Ghat = diag(1,2)
-      Ghat[1,1] = var1$vcov[1]
-      Ghat[2,2] = var1$vcov[2]
-      Ghat[1,2]=Ghat[2,1] = var1$vcov[3]
-      Ghat_inv = ginv(Ghat)
-
-      h2_hat_joint = Ghat[1,1]/(Ghat[1,1]+Rhat[1,1])
+          var1 = as.data.frame(VarCorr(m0))
+          Rhat = diag(var1$vcov[7],2)
+          Rhat[1,1] = Rhat[1,1] + var1$vcov[1]
+          Rhat[2,2] = Rhat[2,2] + var1$vcov[2]
+          Rhat[1,2]=Rhat[2,1] = var1$vcov[3]
+          Ghat = diag(1,2)
+          Ghat[1,1] = var1$vcov[4]
+          Ghat[2,2] = var1$vcov[5]
+          Ghat[1,2]=Ghat[2,1] = var1$vcov[6]
+          Ghat = Ghat/cor_Family
+          Rhat = Rhat - Ghat*(1-cor_Family)
 
 
-      uhat = matrix(c((t(as.matrix(m1@optinfo$relmat[[1]]$Line)) %*% as.matrix(ranef(m1)$Line))[training_Lines,]),nc=nTrait)
+          Rhat_full = kronecker(Rhat,In)
+          Ghat_full = kronecker(Ghat,K)
 
-      # now validation lines conditional on Training lines
-      ustar_mean = K_star %*% inv_K_train %*% uhat
-      Sigma_star = Ghat[2,2]*K_cond + diag(Rhat[2,2],length(mask))
-      Sigma_star_inv = solve(Sigma_star)
-      What_star = Ghat[1,2]*K_cond %*% Sigma_star_inv
-      Uhat_2step_validation = as.matrix(ustar_mean[,1] + What_star %*% (Y[mask,2] - fixef(m1)[2] - ustar_mean[2]))
-
-      Uhat = matrix(c(Uhat_2step_validation,matrix(uhat,nc = nTrait)[,1]),nc=1)
-
-      cov_correction = Rhat[1,2]*sum(diag(S %*% What_star)) / (length(masked_Lines)-1)
+          Vhat_full = Rhat_full + Z_tall %*% Ghat_full %*% t(Z_tall)
+          uhat = matrix(Ghat_full %*% t(Z_tall) %*% solve(Vhat_full,c(sweep(Y,2,fixef(m0),'-'))),nc = nTrait)
+          rownames(uhat) = Lines
+          Uhat_full_validation = uhat[masked_Lines,1]
 
 
-      # make predictions for validation data without y2_validation depending on cor_Sibs
-      Uhat_validation_CV1 =  as.matrix(K_validation[,training_Lines] %*% inv_K_train %*% matrix(uhat,nc=nTrait)[,1])
+          Y_train = Y
+          Y_train[mask,] = NA
+          m1 = lmer(c(Y_train)~0+Trait+(0+Trait|Family)+(0+Trait|ID),tall_data,control=lmerControl(check.nobs.vs.nlev = "ignore",check.nobs.vs.rankZ = "ignore",check.nobs.vs.nRE="ignore"))
 
-      # make predictions for validation data depending on cor_Sibs
-      Uhat_validation = foreach(cor_Sib = cor_Sibs,.combine = cbind) %do% {
-        K_validation_i = K_validation
-        # diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Family + (1-cor_Family) * cor_Sib
-        diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Sib
-        as.matrix(K_validation_i %*% inv_K[Lines,Lines] %*% Uhat[,1])
-      }
+          var1 = as.data.frame(VarCorr(m1))
+          Rhat = diag(var1$vcov[7],2)
+          Rhat[1,1] = Rhat[1,1] + var1$vcov[1]
+          Rhat[2,2] = Rhat[2,2] + var1$vcov[2]
+          Rhat[1,2]=Rhat[2,1] = var1$vcov[3]
+          Ghat = diag(1,2)
+          Ghat[1,1] = var1$vcov[4]
+          Ghat[2,2] = var1$vcov[5]
+          Ghat[1,2]=Ghat[2,1] = var1$vcov[6]
+          Ghat = Ghat/cor_Family
+          Rhat = Rhat - Ghat*(1-cor_Family)
 
-      # make new "True" Validation data based on cor_Sibs
-      # U_validation is the conditional distribution given U and the relationship between the validation and training individuals
-      cov_A_observed_actual_inv = kronecker(solve(G),inv_K[Lines,Lines])
-      U_rot = cov_A_observed_actual_inv %*% Z_tall %*% c(U)
+          h2_hat_joint = Ghat[1,1]/(Ghat[1,1]+Rhat[1,1])
 
-      U_validation = foreach(cor_Sib = cor_Sibs,.combine = cbind) %do% {
-        K_validation_i = K_validation
-        # diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Family + (1-cor_Family) * cor_Sib
-        diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Sib
-        cov_A_validation = kronecker(G[1,,drop=FALSE],K_validation_i)
-        Sigma = diag(G[1,1],length(masked_Lines)) - cov_A_validation %*% cov_A_observed_actual_inv %*% t(cov_A_validation)
-        if(min(diag(Sigma)) < 0) diag(Sigma) = diag(Sigma) + 1e-10 - pmin(0,min(diag(Sigma)))
-        chol_Sigma = chol(Sigma,pivot = F)
-        U_validation_mean = cov_A_validation %*% U_rot
-        U_validation_mean + t(chol_Sigma) %*% U_validation_randn
-      }
+          Rhat_full = kronecker(Rhat,I_train)
+          Ghat_full = kronecker(Ghat,K_train)
+          Vhat_full = Rhat_full + Ghat_full
+          uhat = matrix(Ghat_full %*% solve(Vhat_full,c(sweep(Y_train[-mask,],2,fixef(m1),'-'))),nc = nTrait)
 
-      # make new "Ys" for validation individuals
-      # E_validation is uncorrelated with E, and is the same across cor_Sibs
-      E_validation = E_validation_randn %*% Rsqrt[,1]
+          # now validation lines conditional on Training lines
+          ustar_mean = K_star %*% inv_K_train %*% uhat
+          Sigma_star = Ghat[2,2]*K_cond + diag(Rhat[2,2],length(mask))
+          Sigma_star_inv = solve(Sigma_star)
+          What_star = Ghat[1,2]*K_cond %*% Sigma_star_inv
+          Uhat_2step_validation = as.matrix(ustar_mean[,1] + What_star %*% (Y[mask,2] - fixef(m1)[2] - ustar_mean[2]))
 
-      Y_validation = U_validation + c(E_validation)
+          Uhat = matrix(c(Uhat_2step_validation,matrix(uhat,nc = nTrait)[,1]),nc=1)
 
-      # predict U1 with single-trait model
-      # res=mixed.solve(Y_train[,1],K = as.matrix(K[wide_data$Line,wide_data$Line]))
-      # Uhat_validation_single = res$u[mask]
-      # h2_hat_single = res$Vu/(res$Vu+res$Ve)
-      res = relmatLmer(Y_train[,1]~(1|Line),data = wide_data,relmat = list(Line = K))
-      Uhat_validation_single =  as.matrix(K_validation[,training_Lines] %*% inv_K_train %*% as.matrix(ranef(res)$Line)[training_Lines,])[,1]
-      res_vars = as.data.frame(VarCorr(res))
-      h2_hat_single = res_vars$vcov[1]/sum(res_vars$vcov)
+          cov_correction = Rhat[1,2]*sum(diag(S %*% What_star)) / (length(masked_Lines)-1)
 
+          # make predictions for validation data without y2_validation depending on cor_Sibs
+          Uhat_validation_CV1 =  as.matrix(K_validation[,training_Lines] %*% inv_K_train %*% matrix(uhat,nc=nTrait)[,1])
+
+          # make predictions for validation data depending on cor_Sibs
+          Uhat_validation = foreach(cor_Sib = cor_Sibs,.combine = cbind) %do% {
+            K_validation_i = K_validation
+            # diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Family + (1-cor_Family) * cor_Sib
+            diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Sib
+            as.matrix(K_validation_i %*% inv_K[Lines,Lines] %*% Uhat[,1])
+          }
+
+          # make new "True" Validation data based on cor_Sibs
+          # U_validation is the conditional distribution given U and the relationship between the validation and training individuals
+          cov_A_observed_actual_inv = kronecker(solve(G),inv_K[Lines,Lines])
+          U_rot = cov_A_observed_actual_inv %*% Z_tall %*% c(U)
+
+          U_validation = foreach(cor_Sib = cor_Sibs,.combine = cbind) %do% {
+            K_validation_i = K_validation
+            # diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Family + (1-cor_Family) * cor_Sib
+            diag(K_validation_i[masked_Lines,masked_Lines]) = cor_Sib
+            cov_A_validation = kronecker(G[1,,drop=FALSE],K_validation_i)
+            Sigma = diag(G[1,1],length(masked_Lines)) - cov_A_validation %*% cov_A_observed_actual_inv %*% t(cov_A_validation)
+            if(min(diag(Sigma)) < 0) diag(Sigma) = diag(Sigma) + 1e-10 - pmin(0,min(diag(Sigma)))
+            chol_Sigma = chol(Sigma,pivot = F)
+            U_validation_mean = cov_A_validation %*% U_rot
+            U_validation_mean + t(chol_Sigma) %*% U_validation_randn
+          }
+
+          # make new "Ys" for validation individuals
+          # E_validation is uncorrelated with E, and is the same across cor_Sibs
+          E_validation = E_validation_randn %*% Rsqrt[,1]
+
+          Y_validation = U_validation + c(E_validation)
+
+          res = lmer(Y_train[,1]~(1|Family),data = wide_data)
+          res_vars = as.data.frame(VarCorr(res))
+          s2_g = res_vars$vcov[1]/cor_Family
+          s2_r = res_vars$vcov[2] - s2_g*(1-cor_Family)
+          h2_hat_single = s2_g/(s2_g+s2_r)
+
+          V = s2_g * K_train + s2_r * I_train
+          Uhat_validation_single = s2_g * as.matrix(K_validation[,training_Lines] %*% solve(V,Y_train[-mask,1]-fixef(res)))[,1]
 
 
       # Results
