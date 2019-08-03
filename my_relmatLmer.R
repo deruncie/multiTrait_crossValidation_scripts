@@ -1,3 +1,7 @@
+# This file includes modification to the relmat_lmer from the lme4qtl package: https://github.com/variani/lme4qtl
+# A pull-request has been made to include these changes into the package, but for now, to use you must source this code after loading the package.
+
+
 #---------------------
 # Function `relmatLmer`
 #---------------------
