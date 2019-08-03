@@ -1,0 +1,497 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(cowplot)
+library(ggplot2)
+library(data.table)
+```
+
+
+```{r}
+no_zero <- function(x) {
+  not_NA = !is.na(x)
+  y <- sprintf('%.1f',x)
+  y[not_NA & x > 0 & x < 1] <- sprintf('.%s',x[not_NA & x > 0 & x < 1]*10)
+  y[not_NA & x == 0] <- '0'
+  y[not_NA & x > -1 & x < 0] <- sprintf('-.%s',x[not_NA & x > -1 & x < 0]*-10)
+  y
+}
+SE = function(x) mean(x)/sqrt(length(x))
+
+CI = function(x) {
+  x = x[!is.na(x)]
+  se = SE(x)
+  mean = mean(x)
+  # mean = median(x)
+  data.frame(mean = mean,lower.CL = mean-1.96*se,upper.CL = mean+1.96*se)
+}
+t = theme(strip.text.x = element_text(margin = margin()),strip.text.y = element_text(margin = margin()))
+nl = theme(legend.position = 'none')
+```
+
+```{r}
+summarize_results = function(results,column) {
+  # results_sum = as.data.table(results)[,eval(parse(text = sprintf('CI(%s)',column))),by = c('cor_G','cor_R','H2s.1','H2s.2')]
+  results_sum = as.data.table(results)[,eval(parse(text = sprintf('CI(%s)',column))),by = c(colnames(results)[colnames(results) != column])]
+}
+```
+
+
+```{r}
+test_1a = fread(file = 'Results/test_1a.csv',data.table=F)
+test_1b = fread(file = 'Results/test_1b.csv',data.table=F)
+test_2a4a = fread(file = 'Results/test_2a4a.csv',data.table=F)
+test_3a = fread(file = 'Results/test_3a.csv',data.table=F)
+test_5a = fread(file = 'Results/test_5a.csv',data.table=F)
+test_5b = fread(file = 'Results/test_5b.csv',data.table=F)
+```
+
+# which simulation to use?
+```{r}
+H2s.1. = 0.2
+```
+
+# Analytical results
+```{r}
+results = melt(subset(test_1a,H2s.1 == H2s.1.),measure.vars = c('E_cor_single_u','E_cor_CV1_u','E_cor_CV2_u'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_analytical = summarize_results(results,'value')
+results_sum_analytical$variable = sub('E_cor_','',results_sum_analytical$variable)
+results_sum_analytical$variable = sub('_u','',results_sum_analytical$variable)
+results_sum_analytical$variable[results_sum_analytical$variable == 'single'] = 'Single'
+results_sum_analytical$variable = factor(results_sum_analytical$variable,levels = c('Single','CV1','CV2'))
+
+ggplot(results_sum_analytical,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=H^2~(2)~'='~.(H2s.2))) +
+  # ylab(expression(paste(rho()))) + 
+  ylab(bquote(cor(hat(bold(u))[n1],bold(u)[n1]))) +
+  xlab(expression(paste(rho[R]))) +
+  # ggtitle(expression(paste('Accuracy measured against ',bold(u)[1],'*')))+
+  # ylim(ylim) +
+  scale_x_continuous(labels = no_zero) +
+  theme(legend.position = 'bottom') + 
+  # geom_ribbon(aes(group = Method,fill=Method,ymin = lower.CL,ymax = upper.CL),alpha = 0.3) + 
+  geom_line(aes(group = variable,color = variable));#p_1a
+
+```
+
+# test 1b
+```{r}
+results = melt(subset(test_1b,H2s.1 == H2s.1.),measure.vars = c('Single_u','CV1_u','CV2_u'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_knownG = summarize_results(results,'value')
+results_sum_knownG$variable = sub('_u','',results_sum_knownG$variable)
+# results = melt(subset(test_1b,H2s.1 == H2s.1.),measure.vars = c('Single_y','CV1_y','CV2_y'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+# results_sum_knownG = summarize_results(results,'value')
+# results_sum_knownG$variable = sub('_y','',results_sum_knownG$variable)
+# results_sum_knownG$mean = results_sum_knownG$mean /sqrt(H2s.1.)
+# results_sum_knownG$lower.CL = results_sum_knownG$lower.CL/sqrt(H2s.1.)
+# results_sum_knownG$upper.CL = results_sum_knownG$upper.CL/sqrt(H2s.1.)
+results_sum_knownG$variable = factor(results_sum_knownG$variable,levels = c('Single','CV1','CV2'))
+
+p_sf1 = ggplot(results_sum_knownG,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  # ylab(expression(paste(rho()))) + 
+  ylab(bquote(cor(hat(bold(u))[n1],bold(u)[n1]))) +
+  xlab(expression(paste(rho[R]))) +
+  # ggtitle(expression(paste('Accuracy measured against ',bold(u)[1],'*')))+
+  # ylim(ylim) +
+  scale_x_continuous(labels = no_zero) +
+  labs(color = 'Method',fill = 'Method') + 
+  theme(legend.position = 'bottom') + 
+  # geom_line(data = results_sum_2a_u,aes(group = variable,color = variable),linetype=3) +
+  geom_line(data = results_sum_analytical,aes(group = variable,color = variable),linetype=2) + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.2) +
+  geom_line(aes(group = variable,color = variable));p_sf1
+
+```
+## Supplemental figure 1
+```{r}
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/SF1.pdf',p_sf1 + t)
+```
+
+# test 2a - Figure 1
+```{r}
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('Single_u','CV1_u','CV2_u'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_2a_u = summarize_results(results,'value')
+results_sum_2a_u$variable = sub('_u','',results_sum_2a_u$variable)
+results_sum_2a_u$variable = factor(results_sum_2a_u$variable,levels = c('Single','CV1','CV2'))
+
+p_1 = ggplot(results_sum_2a_u,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  # ylab(expression(paste(rho()))) + 
+  ylab(bquote(cor(hat(bold(u))[n1],bold(u)[n1]))) +
+  xlab(expression(paste(rho[R]))) +
+  # ggtitle(expression(paste('Accuracy measured against ',bold(u)[1],'*')))+
+  # ylim(ylim) +
+  scale_x_continuous(labels = no_zero) +
+  theme(legend.position = 'bottom') + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.2) +
+  geom_line(aes(group = variable,color = variable));p_1
+
+```
+```{r}
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/Figure_1.pdf',p_1,base_width = 5)
+```
+
+
+## Figure 2 Estimated accuracy
+### Figure 2a Accuracy of methods against Y_train
+```{r}
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('Single_y','CV1_y','CV2_y'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_2a_y = summarize_results(results,'value')
+results_sum_2a_y$variable = sub('_y','',results_sum_2a_y$variable)
+results_sum_2a_y$variable = factor(results_sum_2a_y$variable,levels = c('Single','CV1','CV2'))
+
+p_2a = ggplot(results_sum_2a_y,aes(x=cor_R,y=mean/sqrt(H2s.1.))) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  # ylab(expression(paste(rho()))) + 
+  ylab(bquote(cor(hat(bold(u))[n1],bold(y)[n1])~'/'~sqrt(h^2~(1)))) +
+  xlab(expression(paste(rho[R]))) +
+  # ggtitle(expression(paste('Accuracy measured against ',bold(u)[1],'*')))+
+  # ylim(ylim) +
+  coord_cartesian(ylim=c(0,1)) + 
+  scale_x_continuous(labels = no_zero) +
+  labs(color = 'Method',fill = 'Method') + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL/sqrt(H2s.1.),ymax = upper.CL/sqrt(H2s.1.)),alpha = 0.2) +
+  geom_line(data = results_sum_2a_u,aes(group = variable,color = variable,y=mean),linetype=2) + 
+  geom_line(aes(group = variable,color = variable));p_2a
+```
+
+
+### Figure 2b Accuracy of methods against Uhat_joint
+```{r}
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('Single_uhatFull','CV1_uhatFull','CV2_uhatFull'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_2a_uhatFull = summarize_results(results,'value')
+results_sum_2a_uhatFull$variable = sub('_uhatFull','',results_sum_2a_uhatFull$variable)
+results_sum_2a_uhatFull$variable = factor(results_sum_2a_uhatFull$variable,levels = c('Single','CV1','CV2'))
+
+p_2b = ggplot(results_sum_2a_uhatFull,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  # ylab(expression(paste(rho()))) + 
+  ylab(bquote(rho(hat(bold(u))[n1],tilde(bold(u))[n1]))) +
+  xlab(expression(paste(rho[R]))) +
+  # ggtitle(expression(paste('Accuracy measured against ',bold(u)[1],'*')))+
+  # ylim(ylim) +
+  coord_cartesian(ylim=c(0,1)) + 
+  scale_x_continuous(labels = no_zero) +
+  # theme(legend.title = element_text('Method')) +
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.2) +
+  geom_line(data = results_sum_2a_u,aes(group = variable,color = variable,y=mean),linetype=2) + 
+  geom_line(aes(group = variable,color = variable));p_2b
+```
+
+
+### Figure 2
+```{r,fig.width=8,fig.height=6}
+# p_1a+t
+legend <- cowplot::get_legend(p_2a)
+fig_2 = cowplot::plot_grid(p_2a+t+nl,p_2b+t+nl,legend,labels = c('A','B'),rel_widths = c(1,1,.2),nrow=1)
+fig_2
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/Figure_2.pdf',fig_2,base_aspect_ratio = 2,base_width = 10)
+```
+
+## Figure 3 Model selection Joint vs single
+```{r}
+test_2a4a$better_CV1_single = test_2a4a$CV1_u > test_2a4a$Single_u
+test_2a4a$better_CV2_single = test_2a4a$CV2_u > test_2a4a$Single_u
+
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('better_CV1_single','better_CV2_single'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_u_selection = summarize_results(results,'value')
+
+p_S3 = ggplot(results_u_selection,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  # ylab(expression(paste(rho()))) + 
+  ylab('Fraction multi-trait selected') +
+  xlab(expression(paste(rho[R]))) +
+  # ggtitle(expression(paste('Accuracy measured against ',bold(u)[1],'*')))+
+  # ylim(ylim) +
+  scale_x_continuous(labels = no_zero) +
+  geom_hline(yintercept = 0.5) + coord_cartesian(ylim=c(0,1)) +
+  # theme(legend.title = element_text('Method')) +
+  # geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.3) +
+  # geom_line(data = results_sum_2a_u,aes(group = variable,color = variable,y=mean),linetype=2) + 
+  geom_line(aes(group = variable,color = variable));p_S3
+
+```
+
+### Figure 3a: When is correct model selected with training data CV1?
+```{r}
+test_selection = function(test,actual) {
+  stopifnot(all(test[,1:4] == actual[,1:4]))
+  test$Select_correct = NA
+  test$Select_correct[actual$mean > 0.5] = test$mean[actual$mean > 0.5]
+  test$Select_correct[actual$mean <= 0.5] = 1-test$mean[actual$mean <= 0.5]
+  return(test$Select_correct)
+}
+```
+
+```{r}
+test_2a4a$select_CV1_y = test_2a4a$CV1_y > test_2a4a$Single_y
+test_2a4a$select_CV2_y = test_2a4a$CV2_y > test_2a4a$Single_y
+
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('select_CV1_y','select_CV2_y'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_2a_selection = summarize_results(results,'value')
+results_2a_selection$Select_correct = test_selection(results_2a_selection,results_u_selection)
+results_2a_selection$variable = sub('select_','',results_2a_selection$variable)
+results_2a_selection$variable = sub('_y','',results_2a_selection$variable)
+
+p_3 = ggplot(results_2a_selection,aes(x=cor_R,y=Select_correct)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab('Fraction better model selected') +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  geom_hline(yintercept = 0.5) + coord_cartesian(ylim=c(0,1)) +
+  scale_colour_manual(breaks = c('CV1','CV2'),values = hue_pal()(3)[2:3]) + 
+  labs(color = 'Multi-trait\n method') + 
+  geom_line(aes(group = variable,color = variable));p_3
+```
+```{r}
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/Figure_3.pdf',p_3,base_width = 5)
+```
+
+## Figure - parametric selection
+
+```{r}
+results = melt(subset(test_3a,H2s.1 == H2s.1.),measure.vars = c('Single_gcor_u','CV2_gcor_u'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_3a = summarize_results(results,'value')
+results_sum_3a$variable = sub('_gcor_u','',results_sum_3a$variable)
+results_sum_2a_u$variable = as.character(results_sum_2a_u$variable)
+p_4a = ggplot(results_sum_3a,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab(bquote(cor[g](hat(bold(u))[n1],bold(y)[n1])~'*'~sqrt(h^2~(hat(bold(u))[n1])))) +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  # coord_cartesian(ylim=c(0,1)) + 
+  labs(linetype = 'Accuracy estimate',fill = 'Method',color='Method') + 
+  theme(legend.position = 'bottom') + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.3) +
+  # geom_line(data = subset(results_sum_2a_y,variable == 'CV2'),aes(group = variable,color = variable,y=mean/sqrt(H2s.1.),linetype='C'),size=1) +
+  geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='C'),size=0) +
+  geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='B')) + 
+  geom_line(aes(group = variable,color = variable,linetype='A')) +
+  scale_linetype_manual(breaks = c('A','B','C'),values = c(1,2,3),labels = c('parametric','actual','naive')) + 
+  scale_color_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]) + 
+  scale_fill_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]) +
+  guides(linetype = guide_legend(override.aes = list(size = .5)));p_4a
+
+```
+
+
+```{r}
+# test_3a$select_CV1_gcor = test_3a$CV1_gcor_u > test_3a$Single_gcor_u
+test_3a$select_CV2_gcor = test_3a$CV2_gcor_u > test_3a$Single_gcor_u
+
+results = melt(subset(test_3a,H2s.1 == H2s.1.),measure.vars = c('select_CV2_gcor'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_3a_selection = summarize_results(results,'value')
+results_3a_selection$Select_correct = test_selection(results_3a_selection,subset(results_u_selection,variable == 'better_CV2_single'))
+results_3a_selection$variable = sub('select_','',results_3a_selection$variable)
+results_3a_selection$variable = sub('_gcor','',results_3a_selection$variable)
+
+p_4b = ggplot(results_3a_selection,aes(x=cor_R,y=Select_correct)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab('Fraction better model selected') +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  scale_colour_manual(breaks = c('CV2'),values = hue_pal()(3)[3]) + 
+  labs(linetype = 'Method') + 
+  theme(legend.position = 'bottom') + 
+  geom_hline(yintercept = 0.5) + coord_cartesian(ylim=c(0,1)) +
+  geom_line(data = subset(results_2a_selection,variable == 'CV2'),color = hue_pal()(3)[3],aes(linetype = 'B'),size=1) + 
+  geom_line(aes(group = variable,linetype = 'A'),color = hue_pal()(3)[3]) +
+  scale_linetype_manual(breaks = c('A','B'),values=c(1,3),labels = c('parametric','naive'));p_4b
+  # scale_linetype_manual(breaks = c('A','B'),values=1:2,labels = c(expression(paste(cor[g](hat(u)[1],y[1]),sqrt(h^2[hat(u)]))),expression(cor(hat(u)[1],y[1]))));p_4b
+```
+
+### Figure 4
+```{r,fig.width=8,fig.height=6}
+t = theme(strip.text.x = element_text(margin = margin()),strip.text.y = element_text(margin = margin()))
+nl = theme(legend.position = 'none')
+legend <- cowplot::get_legend(p_4a)
+fig_4 = cowplot::plot_grid(cowplot::plot_grid(p_4a + t+nl,p_4b+ t+nl,labels = c('A','B')),legend,ncol=1,rel_heights = c(.9,.1))
+fig_4
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/Figure_4.pdf',fig_4,base_aspect_ratio = 2,base_width = 10)
+```
+
+
+
+## Figure - semiparametric selection
+
+```{r}
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('CV2_y_corrected','Single_y'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_4a = summarize_results(results,'value')
+results_sum_4a$variable = sub('_y_corrected','',results_sum_4a$variable)
+results_sum_4a$variable = sub('_y','',results_sum_4a$variable)
+results_sum_4a$mean = results_sum_4a$mean/sqrt(H2s.1.)
+results_sum_4a$lower.CL = results_sum_4a$lower.CL/sqrt(H2s.1.)
+results_sum_4a$upper.CL = results_sum_4a$upper.CL/sqrt(H2s.1.)
+results_sum_2a_u$variable = as.character(results_sum_2a_u$variable)
+p_5a = ggplot(results_sum_4a,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab(bquote(cor[c](hat(bold(u))[n1],bold(y)[n1])~'/'~sqrt(h^2~(1)))) +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  # coord_cartesian(ylim=c(0,1)) + 
+  labs(linetype = 'Accuracy estimate',fill = 'Method',color='Method') + 
+  theme(legend.position = 'bottom') + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.3) +
+  # geom_line(data = subset(results_sum_2a_y,variable == 'CV2'),aes(group = variable,color = variable,y=mean/sqrt(H2s.1.),linetype='C'),size=1) +
+  geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='C'),size=0) +
+  geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='B')) + 
+  geom_line(aes(group = variable,color = variable,linetype='A')) +
+  scale_linetype_manual(breaks = c('A','B','C'),values = c(1,2,3),labels = c('semi-parametric','actual','naive')) + 
+  scale_color_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]) + 
+  scale_fill_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]) +
+  guides(linetype = guide_legend(override.aes = list(size = .5)));p_5a
+
+```
+
+```{r}
+test_2a4a$select_CV2_corrected = test_2a4a$CV2_y_corrected > test_2a4a$Single_y
+
+results = melt(subset(test_2a4a,H2s.1 == H2s.1.),measure.vars = c('select_CV2_corrected'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_4a_selection = summarize_results(results,'value')
+results_4a_selection$Select_correct = test_selection(results_4a_selection,subset(results_u_selection,variable == 'better_CV2_single'))
+
+p_5b = ggplot(results_4a_selection,aes(x=cor_R,y=Select_correct)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab('Fraction better model selected') +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  scale_colour_manual(breaks = c('CV2'),values = hue_pal()(3)[3]) + 
+  labs(linetype = 'Method') + 
+  theme(legend.position = 'bottom') + 
+  geom_hline(yintercept = 0.5) + coord_cartesian(ylim=c(0,1)) +
+  geom_line(data = subset(results_2a_selection,variable == 'CV2'),color = hue_pal()(3)[3],aes(linetype = 'B'),size=1) + 
+  geom_line(aes(group = variable,linetype = 'A'),color = hue_pal()(3)[3]) +
+  scale_linetype_manual(breaks = c('A','B','C'),values=c(1,3,2),labels = c('semi-parametric','naive','actual'),drop=F);p_5b
+
+```
+
+### Figure 5
+```{r,fig.width=8,fig.height=6}
+fig_5 = cowplot::plot_grid(cowplot::plot_grid(p_5a + t+nl,p_5b + t+nl,labels = c('A','B')),cowplot::get_legend(p_5a),ncol=1,rel_heights = c(.9,.1))
+fig_5
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/Figure_5.pdf',fig_5,base_aspect_ratio = 2,base_width = 10)
+```
+
+### SF2 - semi-parametric correction
+```{r}
+results = melt(subset(test_1b,H2s.1 == H2s.1.),measure.vars = c('CV2_y_corrected','Single_y'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_sum_1b = summarize_results(results,'value')
+results_sum_1b$variable = sub('_y_corrected','',results_sum_1b$variable)
+results_sum_1b$variable = sub('_y','',results_sum_1b$variable)
+results_sum_1b$mean = results_sum_1b$mean/sqrt(H2s.1.)
+results_sum_1b$lower.CL = results_sum_1b$lower.CL/sqrt(H2s.1.)
+results_sum_1b$upper.CL = results_sum_1b$upper.CL/sqrt(H2s.1.)
+# results_sum_2a_u$variable = as.character(results_sum_2a_u$variable)
+p_sf2 = ggplot(results_sum_1b,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab(bquote(cor[c](hat(bold(u))[n1],bold(y)[n1])~'/'~sqrt(h^2~(1)))) +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  # coord_cartesian(ylim=c(0,1)) + 
+  labs(linetype = 'Accuracy estimate',fill = 'Method',color='Method') + 
+  theme(legend.position = 'bottom') + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.3) +
+  # geom_line(data = subset(results_sum_2a_y,variable == 'CV2'),aes(group = variable,color = variable,y=mean/sqrt(H2s.1.),linetype='C'),size=1) +
+  # geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='C'),size=0) +
+  geom_line(data = subset(results_sum_knownG,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='B')) + 
+  geom_line(aes(group = variable,color = variable,linetype='A')) +
+  scale_linetype_manual(breaks = c('A','B','C'),values = c(1,2,3),labels = c('semi-parametric','actual','naive')) + 
+  scale_color_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(1,3)]) + 
+  scale_fill_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]) +
+  guides(linetype = guide_legend(override.aes = list(size = .5)));p_sf2
+
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/SF2.pdf',p_sf2 + t)
+```
+
+
+## Figure - non-parameteric selection
+
+
+```{r}
+results = melt(subset(test_5a,H2s.1 == H2s.1.),measure.vars = c('CV2_y','Single_y'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+
+results$value = results$value/sqrt(H2s.1./(H2s.1. + 2*(1-H2s.1.)))
+results_sum_5a = summarize_results(results,'value')
+results_sum_5a$variable = sub('_y','',results_sum_5a$variable)
+
+results_sum_2a_u$variable = as.character(results_sum_2a_u$variable)
+p_6a = ggplot(results_sum_5a,aes(x=cor_R,y=mean)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab(bquote(cor(hat(bold(u))[x1],bold(y)[x1])~'/'~sqrt(h^2~(1)))) +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  # coord_cartesian(ylim=c(0,1)) + 
+  labs(linetype = 'Accuracy estimate',fill = 'Method',color='Method') + 
+  theme(legend.position = 'bottom') + 
+  geom_ribbon(aes(group = variable,fill=variable,ymin = lower.CL,ymax = upper.CL),alpha = 0.3) +
+  # geom_line(data = subset(results_sum_2a_y,variable == 'CV2'),aes(group = variable,color = variable,y=mean/sqrt(H2s.1.),linetype='C'),size=1) +
+  geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='B')) +
+  geom_line(data = subset(results_sum_2a_u,variable != 'CV1'),aes(group = variable,color = variable,y=mean,linetype='C'),size=0) +
+  geom_line(aes(group = variable,color = variable,linetype='A')) +
+  scale_linetype_manual(breaks = factor(c('A','B','C')),values = c(1,2,3),labels = c('non-parametric','actual','naive'),guide=F) + 
+  scale_color_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]) + 
+  scale_fill_manual(breaks = c('Single','CV2'),values = hue_pal()(3)[c(3,1)]);p_6a
+  # guides(linetype = guide_legend(override.aes = list(size = .5)))
+```
+
+```{r}
+test_5a$`select_CV2*_clone` = test_5a$CV2_y > test_5a$Single_y
+test_5b$`select_CV2*_relative` = test_5b$CV2_y > test_5b$Single_y
+
+results = rbind(melt(subset(test_5a,H2s.1 == H2s.1.),measure.vars = c('select_CV2*_clone'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1')),
+                melt(subset(test_5b,H2s.1 == H2s.1.),measure.vars = c('select_CV2*_relative'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1')))
+
+# results = melt(subset(test_5a,H2s.1 == H2s.1.),measure.vars = c('select_CV2*_clone','select_CV2*_relative'),id.vars = c('cor_G','cor_R','H2s.2','H2s.1'))
+results_5a_selection = summarize_results(results,'value')
+results_5a_selection$Select_correct = test_selection(results_5a_selection,rbind(subset(results_u_selection,variable == 'better_CV2_single'),subset(results_u_selection,variable == 'better_CV2_single')))
+
+p_6b = ggplot(results_5a_selection,aes(x=cor_R,y=Select_correct)) + 
+  facet_grid(H2s.2~cor_G,labeller = label_bquote(cols = rho[g]~'='~.(cor_G),rows=h^2~(2)~'='~.(H2s.2))) +
+  ylab('Fraction better model selected') +
+  xlab(expression(paste(rho[R]))) +
+  scale_x_continuous(labels = no_zero) +
+  scale_colour_manual(breaks = c('select_CV2*_clone','select_CV2*_relative'),values = hue_pal()(5)[c(4,5)],labels = c('clones','relatives')) + 
+  labs(linetype = 'Method',color = 'Validation individuals') + 
+  theme(legend.position = 'bottom') + 
+  geom_hline(yintercept = 0.5) + coord_cartesian(ylim=c(0,1)) +
+  geom_line(data = subset(results_2a_selection,variable == 'CV2'),color = hue_pal()(3)[3],aes(linetype = 'B'),size=1) + 
+  geom_line(aes(group = variable,linetype = 'A',color = variable)) + 
+  # guides(linetype = guide_legend(override.aes = aes(size=.5))) +
+  # guides(linetype = F) +
+  scale_linetype_manual(breaks = c('A','B','C'),values=c(1,3,2),labels = c('non-parametric','naive','actual'),drop=F,guide=F);p_6b
+
+```
+```{r}
+p_6_legend = cowplot::get_legend(ggplot(data.frame(A=c('A','B','C'),B=0,C=0),aes(x=B,y=C)) + geom_line(aes(linetype = A)) +
+  scale_linetype_manual(breaks = c('A','B','C'),values = 1:3,labels = c('non-parametric','actual','naive')) +
+  theme(legend.position = 'bottom') + labs(linetype = 'Accuracy estimate'))
+```
+
+### Figure 6
+```{r,fig.width=8,fig.height=6}
+t = theme(strip.text.x = element_text(margin = margin()),strip.text.y = element_text(margin = margin()))
+nl = theme(legend.position = 'none')
+legend <- cowplot::get_legend(p_6a)
+fig_6 = cowplot::plot_grid(cowplot::plot_grid(p_6a+t,p_6b+t,labels = c('A','B')),p_6_legend,ncol = 1,rel_heights = c(.95,.05))
+fig_6
+cowplot::save_plot('../Paper/CrossValidation_GP/Figures/Figure_6.pdf',fig_6,base_height = 4.1,base_width = 10)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
