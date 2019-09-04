@@ -22,7 +22,6 @@ library(foreach)
 library(doParallel)
 library(MASS)
 library(BGLR)
-source('my_relmatLmer.R')
 
 # set up run
 runID = as.numeric(commandArgs(t=T)[1])
